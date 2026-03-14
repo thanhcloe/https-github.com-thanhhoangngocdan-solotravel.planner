@@ -53,6 +53,7 @@ export default function DestinationDetails() {
         } else {
           console.error("Error generating image:", error);
         }
+        setHeaderImage(`https://picsum.photos/seed/${encodeURIComponent(destinationName)}/1920/1080?blur=2`);
       } finally {
         setIsGenerating(false);
       }
@@ -97,6 +98,10 @@ export default function DestinationDetails() {
             } else {
               console.error(`Error generating image for ${nb.name}:`, err);
             }
+            setNeighborhoodImages(prev => ({
+              ...prev,
+              [nb.name]: FALLBACK_NEIGHBORHOOD_IMAGES[nb.name] || `https://picsum.photos/seed/${encodeURIComponent(nb.name)}/1920/1080?blur=2`
+            }));
           }
         }
       } finally {

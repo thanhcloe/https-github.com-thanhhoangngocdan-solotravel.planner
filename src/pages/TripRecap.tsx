@@ -93,6 +93,8 @@ export default function TripRecap() {
         }
       } catch (error) {
         console.error("Error fetching data:", error);
+        // Fallback to a placeholder image if API fails (e.g., quota exceeded)
+        setImageUrl(`https://picsum.photos/seed/${encodeURIComponent(destination)}/1920/1080?blur=2`);
       } finally {
         setIsGeneratingImage(false);
       }

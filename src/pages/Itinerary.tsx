@@ -36,7 +36,8 @@ export default function Itinerary() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
-  const destination = searchParams.get('destination') || 'Tokyo, Japan';
+  const initialDestination = searchParams.get('destination') || 'Tokyo, Japan';
+  const [destination, setDestination] = useState(initialDestination);
   const date = searchParams.get('date') || '';
 
   const [arrivalDate, setArrivalDate] = useState(date || new Date().toISOString().split('T')[0]);
@@ -63,7 +64,6 @@ export default function Itinerary() {
   };
 
   const duration = calculateDuration(arrivalDate, departureDate);
-  const [showPreferences, setShowPreferences] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
   const handleSavePlan = () => {
@@ -91,6 +91,11 @@ export default function Itinerary() {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  
+  const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([]);
+  const [isSearchingDestination, setIsSearchingDestination] = useState(false);
+  const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false);
+  const destinationWrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const addLocation = searchParams.get('addLocation');
@@ -136,6 +141,7 @@ export default function Itinerary() {
           }
         } catch (error) {
           console.error("Error generating image:", error);
+          imageUrl = `https://picsum.photos/seed/${encodeURIComponent(addLocation)}/1920/1080?blur=2`;
         }
 
         let cost = '';
@@ -182,12 +188,53 @@ export default function Itinerary() {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setShowLocationSuggestions(false);
       }
+      if (destinationWrapperRef.current && !destinationWrapperRef.current.contains(event.target as Node)) {
+        setShowDestinationSuggestions(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [wrapperRef]);
+  }, [wrapperRef, destinationWrapperRef]);
+
+  useEffect(() => {
+    if (!destination.trim() || !showDestinationSuggestions) {
+      setDestinationSuggestions([]);
+      setIsSearchingDestination(false);
+      return;
+    }
+
+    const fetchDestinations = async () => {
+      setIsSearchingDestination(true);
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Suggest 5 popular travel destinations matching the keyword "${destination}". Return a JSON array of strings representing the destination names (e.g. "City, Country").`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          }
+        });
+        
+        if (response.text) {
+          const parsed = JSON.parse(response.text);
+          setDestinationSuggestions(parsed);
+        }
+      } catch (error) {
+        console.error("Error fetching destination suggestions:", error);
+      } finally {
+        setIsSearchingDestination(false);
+      }
+    };
+
+    const timeoutId = setTimeout(fetchDestinations, 500);
+    return () => clearTimeout(timeoutId);
+  }, [destination, showDestinationSuggestions]);
 
   useEffect(() => {
     if (!newItem.location.trim() || !showLocationSuggestions) {
@@ -263,6 +310,7 @@ export default function Itinerary() {
       }
     } catch (error) {
       console.error("Error generating image:", error);
+      setNewItem(prev => ({ ...prev, image: `https://picsum.photos/seed/${encodeURIComponent(locName)}/1920/1080?blur=2` }));
     } finally {
       setIsGeneratingImage(false);
     }
@@ -391,7 +439,6 @@ export default function Itinerary() {
           </button>
           <div className="flex flex-col items-center">
             <h2 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-tight">{t('itinerary.title')}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{destination} {date ? `• ${date}` : ''}</p>
           </div>
           <div className="flex items-center justify-end gap-2">
             <button 
@@ -417,22 +464,63 @@ export default function Itinerary() {
           </div>
         </div>
 
-        {/* Preferences Form / Summary */}
+        {/* Trip Summary / Inputs */}
         <div className="px-4 pb-4">
-          {showPreferences ? (
-            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2">
-              <div className="flex justify-between items-center mb-1">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('itinerary.customize')}</h3>
-                <button 
-                  onClick={() => setShowPreferences(false)}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                >
-                  <span className="material-symbols-outlined text-sm">close</span>
-                </button>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col gap-4 animate-in fade-in">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('itinerary.tripSummary')}</h3>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1 relative" ref={destinationWrapperRef}>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Destination</label>
+                <input 
+                  type="text"
+                  value={destination}
+                  onChange={(e) => {
+                    setDestination(e.target.value);
+                    setShowDestinationSuggestions(true);
+                  }}
+                  onFocus={() => setShowDestinationSuggestions(true)}
+                  className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-sm p-2 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary w-full"
+                  placeholder="Enter destination"
+                  autoComplete="off"
+                />
+                
+                {showDestinationSuggestions && (destination.length > 0 || isSearchingDestination) && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 max-h-60 overflow-y-auto">
+                    {isSearchingDestination ? (
+                      <div className="px-4 py-4 flex items-center justify-center text-slate-500 dark:text-slate-400">
+                        <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>
+                        <span className="text-sm font-medium">Finding destinations...</span>
+                      </div>
+                    ) : destinationSuggestions.length > 0 ? (
+                      destinationSuggestions.map((dest, index) => (
+                        <div 
+                          key={dest + index}
+                          className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-slate-900 dark:text-slate-100 border-b border-slate-50 dark:border-slate-700/50 last:border-0"
+                          onClick={() => {
+                            setDestination(dest);
+                            setShowDestinationSuggestions(false);
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="material-symbols-outlined text-slate-400">location_city</span>
+                            <span className="font-medium text-sm">{dest}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-4 py-4 text-center text-sm text-slate-500">
+                        No suggestions found.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Arrival Date</label>
+              <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
+                <div className="flex-1 flex flex-col items-start gap-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Arrival</label>
                   <input 
                     type="date"
                     value={arrivalDate}
@@ -443,11 +531,17 @@ export default function Itinerary() {
                         setDepartureDate(newArrival);
                       }
                     }}
-                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm p-2 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary"
+                    className="bg-transparent text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none w-full cursor-pointer"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Departure Date</label>
+                
+                <div className="flex flex-col items-center px-2 text-slate-300 dark:text-slate-600">
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span className="text-[10px] font-bold">{duration} {t('itinerary.days')}</span>
+                </div>
+                
+                <div className="flex-1 flex flex-col items-end gap-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Departure</label>
                   <input 
                     type="date"
                     value={departureDate}
@@ -455,49 +549,12 @@ export default function Itinerary() {
                     onChange={(e) => {
                       setDepartureDate(e.target.value);
                     }}
-                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm p-2 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary"
+                    className="bg-transparent text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none w-full text-right cursor-pointer"
                   />
                 </div>
               </div>
-              <button 
-                onClick={() => setShowPreferences(false)}
-                className="w-full mt-2 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors"
-              >
-                {t('itinerary.save')}
-              </button>
             </div>
-          ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col gap-3 animate-in fade-in">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('itinerary.tripSummary')}</h3>
-                <button 
-                  onClick={() => setShowPreferences(true)}
-                  className="text-xs font-semibold text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors"
-                >
-                  {t('itinerary.customize')}
-                </button>
-              </div>
-              
-              <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
-                <div className="flex-1 flex justify-between items-center">
-                  <div className="flex flex-col items-start gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Arrival</span>
-                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{arrivalDate ? new Date(arrivalDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD'}</span>
-                  </div>
-                  
-                  <div className="flex flex-col items-center px-2 text-slate-300 dark:text-slate-600">
-                    <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                    <span className="text-[10px] font-bold">{duration} {t('itinerary.days')}</span>
-                  </div>
-                  
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Departure</span>
-                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{departureDate ? new Date(departureDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
 
         <div className="px-4 pb-2">
